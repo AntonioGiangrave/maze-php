@@ -1,0 +1,239 @@
+version: "3"
+
+networks:
+  seocasa-network:
+    driver: bridge
+
+volumes: {
+   pgsql-storage: {},
+   pgsql-storage-hr: {},
+   goscale-nm: {}
+}
+
+services:
+  nginx:
+    image: seocasa/nginx
+
+    depends_on:
+      - pgsql
+      - pgsql-hr
+      - frontend
+      - frontend_hr
+      - servicets
+
+    # privileged: true
+    volumes:
+      - ./docker.conf.nginx:/etc/nginx/nginx.conf:cached
+      - ./nginx:/etc/nginx/ext:cached
+      # - ${PATH_SERVICE}:/var/www/html
+      - ${PATH_DCMS_UI}:/var/www/html/cms:cached
+      - ${PATH_DCMS_3_UI}:/var/www/html/dcms:cached
+      - ${PATH_FRONTEND}:/var/www/html/dist
+      - ${PATH_FRONTEND_HR}:/var/www/html/react
+
+      - ./certs:/certs
+
+      - ${PATH_STORAGE_UPLOADS}:/var/www/html/uploads
+      - ../storage/ngx_ps_cache:/tmp/cache/ngx_pagespeed_cache
+
+      # todo: map /tmp/cache/ngx_pagespeed_cache docker-compose
+
+    networks:
+      seocasa-network:
+    ports:
+      - "80:80"
+      - "443:443"
+    links: []
+
+  servicets:
+    image: seocasa/servicets_pm2
+    command: ["pm2-docker", "./pm2/process.dev.yml"]
+    # command: ["pm2-docker", "./pm2/process.dev.yml", "--web", "7890"]
+    # command: ['pm2-dev', './pm2/process.dev.yml', '--web', '7890']
+    volumes:
+      - ${PATH_SOURCE_API}/dcms-config:/app/dcms-config:cached #todo: use env path
+      - ${PATH_SOURCE_API}/config:/app/config:cached #todo: use env path
+      - ${PATH_SOURCE_API}/dist:/app/dist:cached
+
+      # - ${PATH_SOURCE_API}/node_modules/@goscale:/app/node_modules/@goscale
+      # - /Users/tony/workspace/dcms2/service-ts2/lib:/.nvm/versions/node/v14.13.1/lib/node_modules/@goscale/dcms-service/lib
+      - ${PATH_DCMS_SERVICE_TS_LIB}:/app/node_modules/@goscale/dcms-service/lib
+      - goscale-nm:/.nvm/versions/node/v14.13.1/lib/node_modules/@goscale/dcms-service/node_modules
+ 
+      #- /Users/tony/.ssh:/root/.ssh
+      # - /Users/tony/workspace/dcms2/service-ts2:/app/node_modules/goscale/dcms-service/lib
+      - ${PATH_SOURCE_API}/package.json:/app/package.json
+      - ${PATH_SOURCE_API}/ormconfig.docker.json:/app/ormconfig.json:cached
+      - "${PATH_SOURCE_API}/.env:/app/.env:cached"
+      - ${PATH_STATIC_JSON}:/app/static-data/:cached
+      # - "${PATH_SERVICETS_CFG}:/app/config:cached"
+      # - "${PATH_SERVICETS_TPL}:/app/templates:cached" # TODO
+      - ${PATH_STORAGE_UPLOADS}:/uploads
+      - ./pm2/process.dev.yml:/app/pm2/process.dev.yml
+      - ../storage/watermark:/assets/watermark:cached
+      # - ${DCMS_3_CSV_IMPORT_PATH_SRC}:${DCMS_3_CSV_IMPORT_PATH_TRG}
+    networks:
+      seocasa-network:
+    links: []
+      # - pgsql
+    environment:
+      DCMS3_JWT_SECRET: w4DW10xMSXzyI3BD1p0VO3xbiOIM3pTPMexu9zAdveix0LzWkFf61rO3MKsFiYLQ
+      DCMS3_JWT_EXPIRES_IN: 345600000
+      DCMS3_JWT_SECRET_DCMS: w4DW10xMSXzyI3BD1p0VO3xbiOIM3pTPMexu9zAdveix0LzWkFf61rO3MKsFiYLQ
+      DCMS3_JWT_EXPIRES_IN_DCMS: 345600000
+      DCMS3_CONFIG_CFG_PATH: /app/dcms-config
+      DCMS3_STATIC_JSON_PATH: /app/static-data
+      DCMS3_PATH_TEMPLATES: /app/templates
+      # DCMS3_WATERMARK_PATH: /assets/watermark
+
+      DCMS3_MAILGUN_PRIVATE_KEY: key-0dfb7595ab5bb3b93d44f6817c0efb69
+      DCMS3_MAILGUN_SENDER_DOMAIN: mg.seocasa.it
+      DCMS3_MAILGUN_SENDER_EMAIL: form@seocasa.it
+      DCMS_3_CSV_IMPORT_PATH: /data-sources
+
+      WATERMARK_PATH: /assets/watermark
+
+      POSTGRES_DB_HOST: pgsql
+      POSTGRES_DB_PORT: 5432
+
+      HR_DB_HOST: pgsql-hr
+      HR_DB_PORT: 5432
+      HR_DB_NAME: hr_dev
+      HR_DB_USERNAME: root
+      HR_DB_PASSWORD: root
+    ports:
+      - "3001:3000"
+      - "9230:9230"
+      # - '8999:8999'
+      - "7890:7890"
+    depends_on:
+      - pgsql
+      - pgsql-hr
+
+  frontend:
+    image: seocasa/frontend
+    command: nodemon --inspect=0.0.0.0 ./dist/server/main.js
+    volumes:
+      - ${PATH_FRONTEND}:/app/dist:cached
+    networks:
+      seocasa-network:
+    links: []
+    ports:
+      - "4000:4000"
+      - "9229:9229"
+
+  frontend_hr:
+    image: seocasa/frontend
+    command: nodemon --inspect=0.0.0.0 ./dist/server.js
+    volumes:
+      - ${PATH_FRONTEND_HR}:/app/dist:cached
+    networks:
+      seocasa-network:
+    links: []
+    ports:
+      - "3333:3000"
+      - "9240:9229"
+
+  mysql:
+    image: seocasa/mysql
+    restart: always
+    command: mysqld --sql_mode=""
+    #      environment:
+    #        - MYSQL_ROOT_USER=root
+    #        - MYSQL_ROOT_PASSWORD=root
+    #      onrun:
+    #        - mysql -uroot -proot seocasa_docker_000 -e  "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION"
+    volumes:
+      - ${PATH_MYSQL_STORAGE}:/var/lib/mysql
+    #        - /Users/tony/Desktop/dumps/seocasa000__06-02-2018.sql:/docker-entrypoint-initdb.d/dump.sql
+    #        - ${PATH_MYSQL_INIT_DB}:/docker-entrypoint-initdb.d/dump.sql
+    networks:
+      seocasa-network:
+        # ipv4_address: 10.9.0.8
+    ports:
+      - "3307:3306"
+
+  pgsql:
+    image: postgres:10.7-alpine
+    restart: always
+    env_file: ./docker/docker.db.env
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgsql-storage:/var/lib/postgresql/data
+    networks:
+      seocasa-network:
+
+  pgsql-hr:
+    image: postgres:10.7-alpine
+    restart: always
+    env_file: ./docker/hr.docker.db.env
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgsql-storage-hr:/var/lib/postgresql/data
+    networks:
+      seocasa-network:
+
+  # hc:
+  #   image: galexrt/healthchecks:latest
+  #   restart: always
+  #   ports:
+  #     - "8000:8000"
+  #     - "2525:2525"
+  #   volumes:
+  #     - HC_Data:/healthchecks
+  #     - HC_SQLite:/data
+  #   environment:
+  #     HC_HOST: "0.0.0.0"
+  #     HC_SECRET_KEY: "blablabla"
+  #     HC_ALLOWED_HOSTS: '["*", "myotherhost", "example.com", "hc.example.com"]'
+  #     HC_DEBUG: "False"
+  #     HC_DEFAULT_FROM_EMAIL: "noreply@hc.example.com"
+  #     HC_USE_PAYMENTS: "False"
+  #     HC_REGISTRATION_OPEN: "False"
+  #     HC_EMAIL_HOST: ""
+  #     HC_EMAIL_PORT: "587"
+  #     HC_EMAIL_HOST_USER: ""
+  #     HC_EMAIL_HOST_PASSWORD: ""
+  #     HC_EMAIL_USE_TLS: "True"
+  #     HC_SITE_ROOT: "https://hc.example.com"
+  #     HC_SITE_NAME: "Mychecks"
+  #     HC_MASTER_BADGE_LABEL: "Mychecks"
+  #     HC_PING_ENDPOINT: "https://hc.example.com/ping/"
+  #     HC_PING_EMAIL_DOMAIN: "hc.example.com"
+  #     HC_TWILIO_ACCOUNT: "None"
+  #     HC_TWILIO_AUTH: "None"
+  #     HC_TWILIO_FROM: "None"
+  #     HC_PD_VENDOR_KEY: "None"
+  #     HC_TRELLO_APP_KEY: "None"
+# volumes:
+#   HC_SQLite:
+#   HC_Data:
+
+# chronos:
+#   image: mesosphere/chronos:latest
+#   environment:
+#     PORT0: 8080
+#     PORT1: 8081
+
+# certbot:
+#   image: certbot/certbot
+#   entrypoint: []
+#   command: 'certbot renew --dry-run'
+#   volumes:
+#     - ./certs:/certs
+#   # ports:
+#   #   - '81:80'
+#   networks:
+#     seocasa-network:
+
+# certbot:
+#   build:
+#     context: ./
+#     dockerfile: Dockerfile_certbot
+#   volumes:
+#     - ./certs:/certs
+#   networks:
+#     seocasa-network:
+
