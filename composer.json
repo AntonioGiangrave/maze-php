@@ -1,0 +1,15 @@
+{
+    "name": "tony/mazeretro",
+    "description": "A-Maze-ingly Retro Route Puzzle",
+    "type": "project",
+    "require": {
+        "ext-json": "^7.4"
+    },
+    "license": "free",
+    "authors": [
+        {
+            "name": "Antonio Giangravè",
+            "email": "antonio@bslt.it"
+        }
+    ]
+}
